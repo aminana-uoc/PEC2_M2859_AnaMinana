@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Objetos lanzados al espacio por año, 1957-2025</title>
+<script src="lib/d3.min.js"></script>
+<style>
+:root{--ink:#14213d;--mute:#5c677d;--bg:#f5f7fa}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.5}
+main{max-width:900px;margin:0 auto;padding:24px 16px 40px}
+h1{font-size:1.5rem;line-height:1.25;margin:0 0 6px}
+p{margin:0 0 12px;color:var(--mute);max-width:66ch}
+#leg{display:flex;flex-wrap:wrap;gap:8px 16px;margin:10px 0}
+#leg label{cursor:pointer;font-size:.9rem;display:flex;align-items:center;gap:6px}
+svg{width:100%;height:auto;display:block;background:#fff;border:1px solid #d9dfe8}
+.ax text{font-size:12px;fill:var(--mute)}.ax path,.ax line{stroke:#c3cad6}
+.grid line{stroke:#eef1f5}.grid path{display:none}
+.lab{font-size:13px;fill:var(--ink)}
+.note{font-size:12px;fill:var(--ink)}
+#tip{min-height:1.6em;font-weight:600}
+#msg{color:#a4281c}footer{font-size:.85rem;color:var(--mute)}
+</style></head><body><main>
+<h1>La carrera espacial ya no es entre dos países, sino comercial</h1>
+<p>Número de objetos lanzados al espacio cada año (satélites, sondas, módulos de aterrizaje, naves tripuladas y elementos de estaciones espaciales). Pulsa un país para ocultarlo o mostrarlo y pasa el ratón por el gráfico para ver los valores de cada año.</p>
+<div id="leg"></div>
+<div id="tip" aria-live="polite"></div>
+<svg id="c" viewBox="0 0 860 480" role="img" aria-label="Gráfico de líneas con el número anual de objetos lanzados al espacio por país"></svg>
+<p id="msg"></p>
+<footer>Fuente: United Nations Office for Outer Space Affairs, Online Index of Objects Launched into Outer Space, procesado por Our World in Data (CC BY). Según la ONU, el registro recoge alrededor del 88 % de los objetos lanzados.</footer>
+<script src="data/space_launches.js"></script>
+<script>
+function loadCSV(file,v){return window[v]!=null?Promise.resolve(window[v]):fetch("data/"+file).then(r=>{if(!r.ok)throw new Error(r.status);return r.text()})}
+const SERIES=[["World","Total mundial","#14213d"],["United States","Estados Unidos","#0072B2"],["China","China","#D55E00"],["Russia","Rusia","#009E73"],["European Space Agency","Agencia Espacial Europea","#CC79A7"]];
+const W=860,H=480,m={t:34,r:24,b:40,l:56};
+loadCSV("space_launches.csv","CSV_SPACE").then(t=>{const raw=d3.csvParse(t);
+  if(!raw.length){err();return}
+  const vcol=raw.columns[raw.columns.length-1];
+  const data=SERIES.map(([k,n,c])=>({k,n,c,on:true,v:raw.filter(r=>r.Entity===k).map(r=>({y:+r.Year,v:+r[vcol]})).filter(d=>!isNaN(d.v)).sort((a,b)=>a.y-b.y)})).filter(s=>s.v.length);
+  if(!data.length){err();return}
+  const all=data.flatMap(s=>s.v);
+  const x=d3.scaleLinear().domain(d3.extent(all,d=>d.y)).range([m.l,W-m.r]);
+  const y=d3.scaleLinear().domain([0,d3.max(all,d=>d.v)]).nice().range([H-m.b,m.t]);
+  const svg=d3.select("#c");
+  svg.append("g").attr("class","grid").attr("transform",`translate(${m.l},0)`).call(d3.axisLeft(y).tickSize(-(W-m.l-m.r)).tickFormat(""));
+  svg.append("g").attr("class","ax").attr("transform",`translate(0,${H-m.b})`).call(d3.axisBottom(x).tickFormat(d3.format("d")));
+  svg.append("g").attr("class","ax").attr("transform",`translate(${m.l},0)`).call(d3.axisLeft(y).tickFormat(d=>d.toLocaleString("es-ES")));
+  svg.append("text").attr("class","lab").attr("x",m.l).attr("y",12).text("Objetos por año");
+  const line=d3.line().x(d=>x(d.y)).y(d=>y(d.v));
+  const paths=svg.append("g").selectAll("path").data(data).join("path").attr("d",s=>line(s.v)).attr("fill","none").attr("stroke",s=>s.c).attr("stroke-width",s=>s.k==="World"?2.6:1.8);
+  const w=data.find(s=>s.k==="World")||data[0], pk=w.v.reduce((a,b)=>b.v>a.v?b:a);
+  svg.append("circle").attr("cx",x(pk.y)).attr("cy",y(pk.v)).attr("r",4).attr("fill",w.c);
+  svg.append("text").attr("class","note").attr("x",x(pk.y)-8).attr("y",y(pk.v)+4).attr("text-anchor","end").text(`Récord en ${pk.y}: ${pk.v.toLocaleString("es-ES")}`);
+  const L=d3.select("#leg");
+  data.forEach(s=>{const l=L.append("label");
+    l.append("input").attr("type","checkbox").property("checked",true).on("change",function(){s.on=this.checked;paths.filter(d=>d===s).style("display",s.on?null:"none")});
+    l.append("span").style("width","14px").style("height","3px").style("background",s.c).style("display","inline-block");
+    l.append("span").text(s.n)});
+  const rule=svg.append("line").attr("y1",m.t).attr("y2",H-m.b).attr("stroke","#9aa5b8").style("display","none");
+  const tip=d3.select("#tip");
+  svg.append("rect").attr("x",m.l).attr("y",m.t).attr("width",W-m.l-m.r).attr("height",H-m.t-m.b).attr("fill","transparent")
+   .on("mousemove",ev=>{const yr=Math.round(x.invert(d3.pointer(ev)[0]));rule.style("display",null).attr("x1",x(yr)).attr("x2",x(yr));
+     tip.text(yr+": "+data.filter(s=>s.on).map(s=>{const d=s.v.find(p=>p.y===yr);return s.n+" "+(d?d.v.toLocaleString("es-ES"):"sin dato")}).join(" · "))})
+   .on("mouseleave",()=>{rule.style("display","none");tip.text("")});
+}).catch(err);
+function err(){document.getElementById("msg").textContent="Faltan datos: añade data/space_launches.csv y ejecuta crear_datos_js.py (ver README)."}
+</script></main></body></html>

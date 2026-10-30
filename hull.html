@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Exoplanetas: cada método de detección ocupa su territorio</title>
+<script src="lib/d3.min.js"></script>
+<style>
+:root{--ink:#14213d;--mute:#5c677d;--bg:#f5f7fa}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.5}
+main{max-width:900px;margin:0 auto;padding:24px 16px 40px}
+h1{font-size:1.5rem;line-height:1.25;margin:0 0 6px}
+p{margin:0 0 12px;color:var(--mute);max-width:66ch}
+#leg{display:flex;flex-wrap:wrap;gap:8px 16px;margin:10px 0}
+#leg label{cursor:pointer;font-size:.9rem;display:flex;align-items:center;gap:6px}
+svg{width:100%;height:auto;display:block;background:#fff;border:1px solid #d9dfe8}
+.ax text{font-size:12px;fill:var(--mute)}.ax path,.ax line{stroke:#c3cad6}
+.lab{font-size:13px;fill:var(--ink);text-anchor:middle}
+#msg{color:#a4281c}footer{font-size:.85rem;color:var(--mute)}
+</style></head><body><main>
+<h1>Cada método de detección ve un tipo distinto de exoplaneta</h1>
+<p>Masa frente a periodo orbital de los exoplanetas confirmados, en escala logarítmica. Cada polígono es la envolvente convexa de los planetas descubiertos con un mismo método. Un solo planeta extremo agranda su polígono entero. Se muestran los cuatro métodos principales; activa los demás en la leyenda.</p>
+<div id="leg"></div>
+<svg id="c" viewBox="0 0 860 520" role="img" aria-label="Dispersión de masa y periodo orbital con envolventes convexas por método de descubrimiento"></svg>
+<p id="msg"></p>
+<footer>Fuente: NASA Exoplanet Archive, tabla Planetary Systems Composite Parameters. Solo se muestran los planetas con masa y periodo orbital conocidos y métodos con al menos 3 planetas.</footer>
+<script src="data/exoplanets.js"></script>
+<script>
+function loadCSV(file,v){return window[v]!=null?Promise.resolve(window[v]):fetch("data/"+file).then(r=>{if(!r.ok)throw new Error(r.status);return r.text()})}
+const NAMES={"Transit":"Tránsito","Radial Velocity":"Velocidad radial","Microlensing":"Microlente","Imaging":"Imagen directa","Transit Timing Variations":"Variaciones del tránsito","Eclipse Timing Variations":"Variaciones del eclipse","Orbital Brightness Modulation":"Modulación orbital","Astrometry":"Astrometría","Pulsar Timing":"Cronometría de púlsares","Pulsation Timing Variations":"Variaciones de pulsación"};
+const COL=["#0072B2","#E69F00","#009E73","#CC79A7","#D55E00","#56B4E9","#7a7a7a","#332288","#999933","#882255"];
+const W=860,H=520,m={t:16,r:48,b:50,l:60};
+loadCSV("exoplanets.csv","CSV_EXO").then(t=>{const raw=d3.csvParse(t);
+  const d=raw.map(r=>({m:r.discoverymethod,x:+r.pl_orbper,y:+r.pl_bmasse,n:r.pl_name})).filter(r=>r.x>0&&r.y>0&&r.m);
+  if(!d.length){document.getElementById("msg").textContent="Faltan datos: añade data/exoplanets.csv (ver instrucciones).";return}
+  const g=d3.group(d,r=>r.m);
+  const keys=[...g.keys()].filter(k=>g.get(k).length>=3).sort((a,b)=>g.get(b).length-g.get(a).length);
+  const x=d3.scaleLog().domain(d3.extent(d,r=>r.x)).range([m.l,W-m.r]).nice();
+  const y=d3.scaleLog().domain(d3.extent(d,r=>r.y)).range([H-m.b,m.t]).nice();
+  const pw=s=>{const d=s.ticks().filter(t=>Math.abs(Math.log10(t)-Math.round(Math.log10(t)))<1e-9),k=Math.ceil(d.length/7);return d.filter(t=>Math.round(Math.log10(t))%k===0)};
+  const fx=d=>{const e=Math.round(Math.log10(d));return Math.abs(e)<=4?d.toLocaleString("es-ES"):"10"+String(e).split("").map(c=>"⁻⁰¹²³⁴⁵⁶⁷⁸⁹"["-0123456789".indexOf(c)]).join("")};
+  const MAIN=["Transit","Radial Velocity","Microlensing","Imaging"];
+  const svg=d3.select("#c"),col=k=>COL[keys.indexOf(k)%COL.length];
+  svg.append("g").attr("class","ax").attr("transform",`translate(0,${H-m.b})`).call(d3.axisBottom(x).tickValues(pw(x)).tickFormat(fx));
+  svg.append("g").attr("class","ax").attr("transform",`translate(${m.l},0)`).call(d3.axisLeft(y).tickValues(pw(y)).tickFormat(fx));
+  svg.append("text").attr("class","lab").attr("x",(m.l+W-m.r)/2).attr("y",H-10).text("Periodo orbital (días)");
+  svg.append("text").attr("class","lab").attr("transform",`translate(14,${(m.t+H-m.b)/2}) rotate(-90)`).text("Masa (masas terrestres)");
+  const layer={};
+  keys.forEach(k=>{
+    const pts=g.get(k),G=svg.append("g").style("display",MAIN.includes(k)?null:"none");layer[k]=G;
+    const px=pts.map(p=>[x(p.x),y(p.y)]),h=d3.polygonHull(px);
+    if(h)G.append("path").attr("d","M"+h.join("L")+"Z").attr("fill",col(k)).attr("fill-opacity",.13).attr("stroke",col(k)).attr("stroke-width",1.6).attr("stroke-linejoin","round");
+    G.selectAll("circle").data(pts).join("circle").attr("cx",p=>x(p.x)).attr("cy",p=>y(p.y)).attr("r",1.8).attr("fill",col(k)).attr("fill-opacity",.4)
+     .append("title").text(p=>`${p.n} (${NAMES[k]||k})\nPeriodo: ${p.x.toLocaleString("es-ES")} d\nMasa: ${p.y.toLocaleString("es-ES")} M⊕`);
+  });
+  const L=d3.select("#leg");
+  keys.forEach(k=>{
+    const l=L.append("label");
+    l.append("input").attr("type","checkbox").property("checked",MAIN.includes(k)).on("change",function(){layer[k].style("display",this.checked?null:"none")});
+    l.append("span").style("width","12px").style("height","12px").style("background",col(k)).style("display","inline-block");
+    l.append("span").text(`${NAMES[k]||k} (${g.get(k).length})`);
+  });
+}).catch(()=>{document.getElementById("msg").textContent="Faltan datos: añade data/exoplanets.csv y ejecuta crear_datos_js.py (ver README)."});
+</script></main></body></html>
